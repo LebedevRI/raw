@@ -1,6 +1,6 @@
 <?php
     session_start();
-    require_once "Mail.php";
+    // require_once "Mail.php";
 
 // db shizzle
     function db_init() {
@@ -479,15 +479,15 @@
                 $data['bitspersample']=$exifdata['exiftool']['BitsPerSample'] ?? $data['bitspersample'];
             }
 
-            
-            // PENTAX 
+
+            // PENTAX
             if(preg_match("/^pentax/i",$data['make'])){
                 if($exifdata['exiftool']['EXIF:Compression'] == "Pentax PEF Compressed") {
                     $data['mode'] = "compressed";
                 } else if($exifdata['exiftool']['EXIF:Compression'] == "PackBits" or $exifdata['exiftool']['EXIF:Compression'] == "Uncompressed") {
                     $data['mode'] = "uncompressed";
                 }
-                
+
                 $data['bitspersample']=$exifdata['exiftool']['BitsPerSample'] ?? $data['bitspersample'];
             }
 

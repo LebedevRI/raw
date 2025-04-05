@@ -12,15 +12,45 @@
         return rmdir($dir);
       }
 
+    function writeGitLFSPointer($filename, $raw) {
+        $fp=fopen($filename,"w");
+        fprintf($fp,"version https://git-lfs.github.com/spec/v1\n",);
+        fprintf($fp,"oid sha256:%s\n", $raw['checksum']);
+        fprintf($fp,"size %u\n", $raw['filesize']);
+        fclose($fp);
+    }
+    function turnIntoAGitLFSRepo($cwd) {
+
+        $env = array();
+        proc_close(proc_open(array('git', 'init', '--bare', '--initial-branch=master'), null, null, $cwd, $env));
+        proc_close(proc_open(array('git', 'add', '.'), null, null, $cwd, $env));
+        proc_close(proc_open(array('git', 'commit', ''), null, null, $cwd, $env));
+
+        $fp=fopen($cwd."/.gitattributes","w");
+        fprintf($fp,"* filter=lfs diff=lfs merge=lfs -text",);
+        fprintf($fp,".gitattributes !filter !diff !merge text",);
+        fprintf($fp,"timestamp.txt !filter !diff !merge text",);
+        fprintf($fp,"filelist.sha256 !filter !diff !merge text",);
+        fclose($fp);
+
+        proc_close(proc_open(array('git', 'add', '.gitattributes'), null, null, $cwd, $env));
+        proc_close(proc_open(array('git', 'commit', '--amend'), null, null, $cwd, $env));
+    }
+
     $cameradata=parsecamerasxml();
     $data=raw_getalldata();
     $makes=array();
     $noncc0samples=0;
-    
+
     if(is_dir(publicdatapath)){
         delTree(publicdatapath);
     }
     mkdir(publicdatapath);
+
+    if(is_dir(publicdatapath_git)){
+        delTree(publicdatapath_git);
+    }
+    mkdir(publicdatapath_git);
 
     foreach($data as $raw){
         if($raw['validated']==1){
@@ -40,13 +70,21 @@
             if(!is_dir(publicdatapath."/".$make."/".$model)){
                 mkdir(publicdatapath."/".$make."/".$model);
             }
-            symlink(datapath."/".hash_id($raw['id'])."/".$raw['id']."/".$raw['filename'],publicdatapath."/".$make."/".$model."/".$raw['filename']);
+            if(!is_dir(publicdatapath_git."/".$make)){
+                mkdir(publicdatapath_git."/".$make);
+            }
+            if(!is_dir(publicdatapath_git."/".$make."/".$model)){
+                mkdir(publicdatapath_git."/".$make."/".$model);
+            }
+            $output_filename=$make."/".$model."/".$raw['filename'];
+            symlink(datapath."/".hash_id($raw['id'])."/".$raw['id']."/".$raw['filename'], publicdatapath."/".$output_filename);
+            writeGitLFSPointer(publicdatapath_git."/".$output_filename, $raw);
             $sha256table[$make."/".$model."/".$raw['filename']]=$raw['checksum'];
 
             if(!in_array($make,$makes)){
                 $makes[]=$make;
             }
-            
+
             if($raw['license']!="CC0"){
                 $noncc0samples++;
             }
@@ -64,7 +102,12 @@
     }
     fclose($fp);
 
+    copy(publicdatapath."/filelist.sha256", publicdatapath_git."/filelist.sha256");
+
     file_put_contents(publicdatapath."/timestamp.txt",time());
+    copy(publicdatapath."/timestamp.txt", publicdatapath_git."/timestamp.txt");
+
+    turnIntoAGitRepo(publicdatapath_git);
 
     // Badgegeneration
     $cameras=raw_getnumberofcameras();
@@ -78,20 +121,20 @@
     $reposize=raw_gettotalrepositorysize();
     file_put_contents("../www/button-size.svg", file_get_contents("https://img.shields.io/badge/size-".human_filesize($reposize)."-green.svg?maxAge=3600"));
     file_put_contents("../www/button-size.png", file_get_contents("https://img.shields.io/badge/size-".human_filesize($reposize)."-green.png?maxAge=3600"));
-    
+
     $reposize/=(1024*1024*1024);
-    
+
     $missingcameras=count(unserialize(file_get_contents(datapath."/missingcameradata.serialize")));
-    
+
     $postdata="rpu,key=cameras value=$cameras\n";
     $postdata.="rpu,key=samples value=$samples\n";
     $postdata.="rpu,key=reposize value=$reposize\n";
     $postdata.="rpu,key=noncc0samples value=$noncc0samples\n";
     $postdata.="rpu,key=missingcameras value=$missingcameras\n";
     $postdata.="rpu,key=makes value=".count($makes)."\n";
-    
+
     $opts = array('http' => array( 'method'  => 'POST', 'header'  => "Content-Type: application/x-www-form-urlencoded\r\n", 'content' => $postdata, 'timeout' => 60 ) );
     $context  = stream_context_create($opts);
     $url = influxserver."/write?db=".influxdb;
-    file_get_contents($url, false, $context); 
-    
+    file_get_contents($url, false, $context);
+

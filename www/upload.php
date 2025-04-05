@@ -1,5 +1,7 @@
 <?php
 
+error_reporting(-1);
+
     include("../config.php");
     include("functions.php");
 
